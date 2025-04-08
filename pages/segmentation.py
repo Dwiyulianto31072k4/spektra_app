@@ -76,10 +76,20 @@ def show_segmentation_page():
                 # Hitung metrik RFM
                 rfm = calculate_rfm(df, recency_col, freq_col, mon_col)
                 
+                # Cek nilai NaN dalam RFM
+                if rfm.isnull().values.any():
+                    st.info("Terdapat nilai NaN dalam data RFM. Mengisi dengan nilai median.")
+                    rfm = rfm.fillna(rfm.median())
+                
                 # Tambahkan kolom tambahan jika dipilih
                 features = ['Recency']
                 
                 if use_log_transform:
+                    # Pastikan nilai positif sebelum log transform
+                    # Tambahkan epsilon kecil untuk menghindari log(0)
+                    epsilon = 1e-6
+                    rfm['Frequency_log'] = np.log1p(np.maximum(rfm['Frequency'] - 1, 0) + epsilon)
+                    rfm['Monetary_log'] = np.log1p(np.maximum(rfm['Monetary'], 0) + epsilon)
                     features.extend(['Frequency_log', 'Monetary_log'])
                 else:
                     features.extend(['Frequency', 'Monetary'])
@@ -96,6 +106,11 @@ def show_segmentation_page():
                     current_year = pd.Timestamp.now().year
                     rfm['Usia'] = current_year - rfm['BIRTH_DATE'].dt.year
                     
+                    # Periksa dan tangani nilai NaN dalam Usia
+                    if rfm['Usia'].isnull().any():
+                        st.info("Beberapa nilai Usia kosong. Mengisi dengan median.")
+                        rfm['Usia'] = rfm['Usia'].fillna(rfm['Usia'].median())
+                    
                     # Create age segment (1 for prime age 25-50, 0 otherwise)
                     rfm['Usia_Segment'] = rfm['Usia'].apply(lambda x: 1 if 25 <= x <= 50 else 0)
                     
@@ -109,12 +124,36 @@ def show_segmentation_page():
                         
                         # Merge with RFM data
                         rfm = rfm.merge(multi_trans_data, on='CUST_NO', how='left')
+                        
+                        # Periksa dan tangani nilai NaN
+                        if rfm['Multi-Transaction_Customer'].isnull().any():
+                            st.info("Beberapa nilai Multi-Transaction kosong. Mengisi dengan nilai 0.")
+                            rfm['Multi-Transaction_Customer'] = rfm['Multi-Transaction_Customer'].fillna(0)
                     
                     features.append('Multi-Transaction_Customer')
                 
+                # Pastikan tidak ada NaN sebelum normalisasi
+                for feat in features:
+                    if rfm[feat].isnull().any():
+                        rfm[feat] = rfm[feat].fillna(rfm[feat].median())
+                        st.info(f"Nilai yang hilang terdeteksi di kolom {feat} dan diisi dengan median.")
+                
                 # Normalisasi fitur
                 if use_zscore:
-                    rfm_scaled = rfm[features].apply(zscore)
+                    # Gunakan try-except untuk menangani zscore
+                    try:
+                        rfm_scaled = rfm[features].apply(zscore)
+                    except:
+                        st.warning("Gagal menerapkan Z-score normalization. Menggunakan metode alternatif.")
+                        # Alternatif normalisasi manual
+                        rfm_scaled = rfm[features].copy()
+                        for col in rfm_scaled.columns:
+                            mean = rfm_scaled[col].mean()
+                            std = rfm_scaled[col].std()
+                            if std > 0:  # Hindari pembagian dengan 0
+                                rfm_scaled[col] = (rfm_scaled[col] - mean) / std
+                            else:
+                                rfm_scaled[col] = 0  # Jika std=0, semua nilai sama
                 else:
                     rfm_scaled = rfm[features].copy()
                 
@@ -167,6 +206,24 @@ def show_segmentation_page():
             except Exception as e:
                 st.error(f"Error during segmentation: {e}")
                 st.warning("Please check your data and selections, then try again.")
+                
+                # Tampilkan saran untuk mengatasi error
+                if "NaN" in str(e):
+                    st.warning("""
+                    Error terkait nilai NaN (Not a Number). Solusi:
+                    1. Periksa data input Anda untuk nilai yang hilang
+                    2. Pastikan semua kolom numerik berisi nilai yang valid
+                    3. Coba gunakan data contoh untuk melihat hasil yang diharapkan
+                    """)
+                    
+                    # Tambahkan saran untuk menggunakan scikit-learn alternative
+                    st.info("""
+                    Untuk supervised learning, Anda mungkin ingin mempertimbangkan sklearn.ensemble.HistGradientBoostingClassifier atau 
+                    sklearn.ensemble.HistGradientBoostingRegressor yang dapat menangani nilai NaN secara native. 
+                    Atau, Anda dapat menggunakan sklearn.impute.SimpleImputer untuk mengisi nilai yang hilang.
+                    
+                    Lihat: https://scikit-learn.org/stable/modules/impute.html
+                    """)
 
 def display_segmentation_results(rfm, cluster_info, top_clusters):
     """

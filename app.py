@@ -18,6 +18,22 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# Sembunyikan navigasi default Streamlit
+hide_streamlit_style = """
+            <style>
+            #MainMenu {visibility: hidden;}
+            .css-k0sv6k {display: none;}
+            header {visibility: hidden;}
+            .stDeployButton {display:none;}
+            footer {visibility: hidden;}
+            div[data-testid="stSidebarNav"] {display: none;}
+            .main > div:first-child {
+                padding-top: 0rem;
+            }
+            </style>
+            """
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
 # Load CSS dari file
 def load_css():
     with open("styles/style.css", "r") as f:
@@ -30,7 +46,7 @@ if not os.path.exists("temp"):
 # Load logo dan tampilkan di sidebar
 def load_sidebar():
     try:
-        st.sidebar.image("assets/logo.png", width=200)
+        st.sidebar.image("assets/logo.png", width=150)
     except:
         # Fallback jika gambar tidak ditemukan
         st.sidebar.title("SPEKTRA")

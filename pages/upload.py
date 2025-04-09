@@ -36,6 +36,11 @@ def show_upload_page():
                     st.dataframe(processed_data.head())
 
                     st.session_state.data = processed_data
+                    
+                    # Pastikan folder temp ada
+                    if not os.path.exists("temp"):
+                        os.makedirs("temp")
+                        
                     processed_data.to_excel("temp/processed_data.xlsx", index=False)
                     st.session_state.eda_completed = True
 
@@ -52,6 +57,11 @@ def show_upload_page():
             st.success("✅ Example data loaded successfully!")
             st.session_state.data = example_data
             st.session_state.uploaded_file_name = "example_data.xlsx"
+            
+            # Pastikan folder temp ada
+            if not os.path.exists("temp"):
+                os.makedirs("temp")
+                
             example_data.to_excel("temp/processed_data.xlsx", index=False)
             st.dataframe(example_data.head())
             st.session_state.eda_completed = True
@@ -87,7 +97,13 @@ def preprocess_data(data, date_cols):
 
     # Hitung usia jika ada kolom BIRTH_DATE
     if 'BIRTH_DATE' in processed_data.columns:
+        # Hitung usia sebagai nilai numerik (penting untuk analisis distribusi)
         processed_data['Usia'] = datetime.datetime.now().year - processed_data['BIRTH_DATE'].dt.year
+        
+        # Buat kategori usia (untuk visualisasi dan segmentasi)
+        bins = [0, 25, 35, 45, 55, 100]
+        labels = ['<25', '25-35', '35-45', '45-55', '55+']
+        processed_data['Usia_Kategori'] = pd.cut(processed_data['Usia'], bins=bins, labels=labels, right=False)
 
     # Handle missing values (default: median/mode)
     # Konversi kolom numerik ke tipe numerik

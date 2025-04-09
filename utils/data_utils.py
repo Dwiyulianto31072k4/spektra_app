@@ -73,9 +73,10 @@ def create_example_data(n=500):
         if df.loc[i, 'FIRST_PPC_DATE'] > df.loc[i, 'FIRST_MPF_DATE']:
             df.loc[i, 'FIRST_PPC_DATE'] = df.loc[i, 'FIRST_MPF_DATE'] - pd.Timedelta(days=np.random.randint(1, 100))
     
+    # Hitung usia sebagai variabel NUMERIK (penting untuk analisis distribusi)
     df['Usia'] = 2024 - df['BIRTH_DATE'].dt.year
     
-    # Tambahkan kategori usia
+    # Buat kategori usia sebagai variabel KATEGORIK
     bins = [0, 25, 35, 45, 55, 100]
     labels = ['<25', '25-35', '35-45', '45-55', '55+']
     df['Usia_Kategori'] = pd.cut(df['Usia'], bins=bins, labels=labels, right=False)
@@ -127,7 +128,47 @@ def calculate_rfm(df, recency_col, freq_col, mon_col):
     rfm['Frequency_log'] = np.log1p(rfm['Frequency'])
     rfm['Monetary_log'] = np.log1p(rfm['Monetary'])
     
+    # Transfer kolom usia (jika ada)
+    if 'Usia' in df.columns:
+        # Ambil nilai usia untuk setiap pelanggan (biasanya ambil nilai terakhir)
+        usia_data = df.groupby('CUST_NO')['Usia'].last().reset_index()
+        rfm = rfm.merge(usia_data, on='CUST_NO', how='left')
+    
+    # Transfer kolom kategori usia (jika ada)
+    if 'Usia_Kategori' in df.columns:
+        # Ambil kategori usia untuk setiap pelanggan (biasanya ambil nilai terakhir)
+        usia_kategori_data = df.groupby('CUST_NO')['Usia_Kategori'].last().reset_index()
+        rfm = rfm.merge(usia_kategori_data, on='CUST_NO', how='left')
+    
     return rfm
+
+def normalize_data(df, columns):
+    """
+    Normalisasi data menggunakan Z-score
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        Data yang akan dinormalisasi
+    columns : list
+        Daftar kolom yang akan dinormalisasi
+    
+    Returns:
+    --------
+    pandas.DataFrame
+        DataFrame dengan kolom yang sudah dinormalisasi
+    """
+    from scipy.stats import zscore
+    
+    df_norm = df.copy()
+    for col in columns:
+        if col in df.columns:
+            df_norm[col] = zscore(df[col], nan_policy='omit')
+    
+    # Handle NaN values after normalization
+    df_norm = df_norm.fillna(df_norm.median())
+    
+    return df_norm
 
 def get_cluster_info(df, cluster_col='Cluster'):
     """
@@ -162,34 +203,6 @@ def get_cluster_info(df, cluster_col='Cluster'):
     cluster_info = cluster_info.sort_values('Monetary_mean', ascending=False)
     
     return cluster_info
-
-def normalize_data(df, columns):
-    """
-    Normalisasi data menggunakan Z-score
-    
-    Parameters:
-    -----------
-    df : pandas.DataFrame
-        Data yang akan dinormalisasi
-    columns : list
-        Daftar kolom yang akan dinormalisasi
-    
-    Returns:
-    --------
-    pandas.DataFrame
-        DataFrame dengan kolom yang sudah dinormalisasi
-    """
-    from scipy.stats import zscore
-    
-    df_norm = df.copy()
-    for col in columns:
-        if col in df.columns:
-            df_norm[col] = zscore(df[col], nan_policy='omit')
-    
-    # Handle NaN values after normalization
-    df_norm = df_norm.fillna(df_norm.median())
-    
-    return df_norm
 
 def generate_promo_recommendations(df, cluster_col='Cluster'):
     """

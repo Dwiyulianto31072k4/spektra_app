@@ -14,7 +14,29 @@ def show_eda_page():
         st.warning("Please upload and preprocess your data first.")
         return
     
-    data = st.session_state.data
+    data = st.session_state.data.copy()
+    
+    # Debug info - menampilkan info tentang kolom usia
+    st.sidebar.markdown("### Data Info")
+    if 'Usia' in data.columns:
+        st.sidebar.write(f"Age column: Present")
+        st.sidebar.write(f"Age data type: {data['Usia'].dtype}")
+        st.sidebar.write(f"Age null values: {data['Usia'].isnull().sum()}")
+        if not data['Usia'].isnull().all():
+            st.sidebar.write(f"Age statistics: Min={data['Usia'].min():.0f}, Max={data['Usia'].max():.0f}, Mean={data['Usia'].mean():.1f}")
+    else:
+        st.sidebar.write("Age column: Not found")
+    
+    if 'Usia_Kategori' in data.columns:
+        st.sidebar.write(f"Age category column: Present")
+        st.sidebar.write(f"Age category data type: {data['Usia_Kategori'].dtype}")
+        st.sidebar.write(f"Age category null values: {data['Usia_Kategori'].isnull().sum()}")
+        if not data['Usia_Kategori'].isnull().all():
+            st.sidebar.write(f"Age categories: {data['Usia_Kategori'].unique()}")
+    else:
+        st.sidebar.write("Age category column: Not found")
+    
+    # Main UI
     st.markdown("### Select Analysis Options")
     
     tab1, tab2, tab3 = st.tabs(["Distributions", "Customer Demographics", "Transaction Patterns"])
@@ -43,14 +65,29 @@ def show_distribution_analysis(data):
     with col1:
         # Numeric column distribution
         numeric_cols = data.select_dtypes(include=['int64', 'float64']).columns.tolist()
+        
+        # Pastikan kolom Usia tersedia untuk analisis numerik
+        if 'Usia' in data.columns and 'Usia' not in numeric_cols:
+            # Convert to numeric if not already
+            data['Usia'] = pd.to_numeric(data['Usia'], errors='coerce')
+            if not data['Usia'].isnull().all():
+                numeric_cols.append('Usia')
+        
         if not numeric_cols:
             st.info("No numeric columns available for analysis.")
             return
             
+        # Set default column untuk analisis
+        default_idx = 0
+        if 'Usia' in numeric_cols:
+            default_idx = numeric_cols.index('Usia')
+        elif 'TOTAL_AMOUNT_MPF' in numeric_cols:
+            default_idx = numeric_cols.index('TOTAL_AMOUNT_MPF')
+        
         selected_num_col = st.selectbox(
             "Select numeric column for distribution analysis", 
             options=numeric_cols,
-            index=numeric_cols.index('TOTAL_AMOUNT_MPF') if 'TOTAL_AMOUNT_MPF' in numeric_cols else 0
+            index=default_idx
         )
         
         # Check if selected column contains only null values
@@ -61,41 +98,45 @@ def show_distribution_analysis(data):
         log_transform = st.checkbox("Apply log transformation", value=True)
             
         # Create histogram
-        if log_transform and (data[selected_num_col] > 0).all():
-            fig = px.histogram(
-                data, 
-                x=np.log1p(data[selected_num_col]), 
-                title=f"Log Distribution of {selected_num_col}",
-                nbins=50,
-                color_discrete_sequence=['#003366']
+        try:
+            if log_transform and (data[selected_num_col] > 0).all():
+                fig = px.histogram(
+                    data, 
+                    x=np.log1p(data[selected_num_col]), 
+                    title=f"Log Distribution of {selected_num_col}",
+                    nbins=50,
+                    color_discrete_sequence=['#003366']
+                )
+                fig.update_layout(xaxis_title=f"Log({selected_num_col})")
+            else:
+                fig = px.histogram(
+                    data, 
+                    x=selected_num_col, 
+                    title=f"Distribution of {selected_num_col}",
+                    nbins=50,
+                    color_discrete_sequence=['#003366']
+                )
+            
+            fig.update_layout(
+                height=400,
+                margin=dict(l=20, r=20, t=40, b=20),
+                paper_bgcolor="white",
+                plot_bgcolor="rgba(0,0,0,0)"
             )
-            fig.update_layout(xaxis_title=f"Log({selected_num_col})")
-        else:
-            fig = px.histogram(
-                data, 
-                x=selected_num_col, 
-                title=f"Distribution of {selected_num_col}",
-                nbins=50,
-                color_discrete_sequence=['#003366']
-            )
-        
-        fig.update_layout(
-            height=400,
-            margin=dict(l=20, r=20, t=40, b=20),
-            paper_bgcolor="white",
-            plot_bgcolor="rgba(0,0,0,0)"
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Show statistics
-        st.write("**Statistics:**")
-        stats = data[selected_num_col].describe()
-        st.write(f"- Mean: {stats['mean']:,.2f}")
-        st.write(f"- Median: {stats['50%']:,.2f}")
-        st.write(f"- Min: {stats['min']:,.2f}")
-        st.write(f"- Max: {stats['max']:,.2f}")
-        st.write(f"- Standard Deviation: {stats['std']:,.2f}")
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Show statistics
+            st.write("**Statistics:**")
+            stats = data[selected_num_col].describe()
+            st.write(f"- Mean: {stats['mean']:,.2f}")
+            st.write(f"- Median: {stats['50%']:,.2f}")
+            st.write(f"- Min: {stats['min']:,.2f}")
+            st.write(f"- Max: {stats['max']:,.2f}")
+            st.write(f"- Standard Deviation: {stats['std']:,.2f}")
+        except Exception as e:
+            st.error(f"Error creating visualization: {e}")
+            st.warning("Please try another column for analysis.")
     
     with col2:
         # Categorical column distribution
@@ -109,10 +150,17 @@ def show_distribution_analysis(data):
             st.info("No categorical columns available for analysis.")
             return
             
+        # Set default column untuk analisis
+        default_cat_idx = 0
+        if 'Usia_Kategori' in categorical_cols:
+            default_cat_idx = categorical_cols.index('Usia_Kategori')
+        elif 'MPF_CATEGORIES_TAKEN' in categorical_cols:
+            default_cat_idx = categorical_cols.index('MPF_CATEGORIES_TAKEN')
+        
         selected_cat_col = st.selectbox(
             "Select categorical column for distribution analysis", 
             options=categorical_cols,
-            index=categorical_cols.index('MPF_CATEGORIES_TAKEN') if 'MPF_CATEGORIES_TAKEN' in categorical_cols else 0
+            index=default_cat_idx
         )
         
         # Check if selected column contains only null values
@@ -121,35 +169,39 @@ def show_distribution_analysis(data):
             return
         
         # Count values and sort
-        value_counts = data[selected_cat_col].value_counts().reset_index()
-        value_counts.columns = [selected_cat_col, 'Count']
-        
-        # Show top N categories only
-        top_n = st.slider("Show top N categories", min_value=5, max_value=30, value=10)
-        
-        # Create bar chart
-        fig = px.bar(
-            value_counts.head(top_n), 
-            x=selected_cat_col, 
-            y='Count',
-            title=f"Top {top_n} values of {selected_cat_col}",
-            color='Count',
-            color_continuous_scale=px.colors.sequential.Blues
-        )
-        
-        fig.update_layout(
-            height=400,
-            margin=dict(l=20, r=20, t=40, b=20),
-            paper_bgcolor="white",
-            plot_bgcolor="rgba(0,0,0,0)"
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Show top categories
-        st.write("**Top Categories:**")
-        for i, row in value_counts.head(5).iterrows():
-            st.write(f"- {row[selected_cat_col]}: {row['Count']} ({row['Count']/data.shape[0]*100:.1f}%)")
+        try:
+            value_counts = data[selected_cat_col].value_counts().reset_index()
+            value_counts.columns = [selected_cat_col, 'Count']
+            
+            # Show top N categories only
+            top_n = st.slider("Show top N categories", min_value=5, max_value=30, value=10)
+            
+            # Create bar chart
+            fig = px.bar(
+                value_counts.head(top_n), 
+                x=selected_cat_col, 
+                y='Count',
+                title=f"Top {top_n} values of {selected_cat_col}",
+                color='Count',
+                color_continuous_scale=px.colors.sequential.Blues
+            )
+            
+            fig.update_layout(
+                height=400,
+                margin=dict(l=20, r=20, t=40, b=20),
+                paper_bgcolor="white",
+                plot_bgcolor="rgba(0,0,0,0)"
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Show top categories
+            st.write("**Top Categories:**")
+            for i, row in value_counts.head(5).iterrows():
+                st.write(f"- {row[selected_cat_col]}: {row['Count']} ({row['Count']/data.shape[0]*100:.1f}%)")
+        except Exception as e:
+            st.error(f"Error creating visualization: {e}")
+            st.warning("Please try another column for analysis.")
 
 def show_demographic_analysis(data):
     """
@@ -165,66 +217,104 @@ def show_demographic_analysis(data):
     
     with col1:
         # Age distribution (check if valid)
-        if 'Usia' in data.columns and not data['Usia'].isnull().all():
-            # Tab untuk pilihan tipe visualisasi usia
-            age_tabs = st.tabs(["Age Categories", "Age Distribution"])
+        if 'Usia' in data.columns:
+            # Konversi ke numerik jika belum
+            if not pd.api.types.is_numeric_dtype(data['Usia']):
+                data['Usia'] = pd.to_numeric(data['Usia'], errors='coerce')
             
-            with age_tabs[0]:
-                # Pastikan Usia_Kategori ada
-                if 'Usia_Kategori' in data.columns and not data['Usia_Kategori'].isnull().all():
-                    # Plot distribusi kategori usia
-                    age_counts = data['Usia_Kategori'].value_counts().reset_index()
-                    age_counts.columns = ['Age Group', 'Count']
-                    
-                    fig = px.pie(
-                        age_counts, 
-                        values='Count', 
-                        names='Age Group',
+            # Cek apakah data usia valid
+            if data['Usia'].isnull().all():
+                st.warning("Age data contains only null values. Cannot visualize age distribution.")
+                st.error("Please ensure your data includes valid birth dates for age calculation.")
+            else:
+                # Tab untuk pilihan tipe visualisasi usia
+                age_tabs = st.tabs(["Age Categories", "Age Distribution"])
+                
+                with age_tabs[0]:
+                    # Pastikan Usia_Kategori ada
+                    if 'Usia_Kategori' in data.columns and not data['Usia_Kategori'].isnull().all():
+                        # Plot distribusi kategori usia
+                        age_counts = data['Usia_Kategori'].value_counts().reset_index()
+                        age_counts.columns = ['Age Group', 'Count']
+                        
+                        fig = px.pie(
+                            age_counts, 
+                            values='Count', 
+                            names='Age Group',
+                            title="Customer Age Distribution",
+                            hole=0.4,
+                            color_discrete_sequence=px.colors.sequential.Blues
+                        )
+                        
+                        fig.update_layout(
+                            height=400,
+                            margin=dict(l=20, r=20, t=40, b=20),
+                            legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5),
+                            paper_bgcolor="white",
+                            plot_bgcolor="rgba(0,0,0,0)"
+                        )
+                        
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.info("Age category data not available.")
+                        
+                        # Buat kategori usia dari data usia numerik jika ada
+                        if not data['Usia'].isnull().all():
+                            st.info("Creating age categories from numeric age data.")
+                            bins = [0, 25, 35, 45, 55, 100]
+                            labels = ['<25', '25-35', '35-45', '45-55', '55+']
+                            data['Usia_Kategori'] = pd.cut(data['Usia'], bins=bins, labels=labels, right=False)
+                            
+                            # Plot distribusi kategori usia
+                            age_counts = data['Usia_Kategori'].value_counts().reset_index()
+                            age_counts.columns = ['Age Group', 'Count']
+                            
+                            fig = px.pie(
+                                age_counts, 
+                                values='Count', 
+                                names='Age Group',
+                                title="Customer Age Distribution",
+                                hole=0.4,
+                                color_discrete_sequence=px.colors.sequential.Blues
+                            )
+                            
+                            fig.update_layout(
+                                height=400,
+                                margin=dict(l=20, r=20, t=40, b=20),
+                                legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5),
+                                paper_bgcolor="white",
+                                plot_bgcolor="rgba(0,0,0,0)"
+                            )
+                            
+                            st.plotly_chart(fig, use_container_width=True)
+                
+                with age_tabs[1]:
+                    # Plot distribusi usia numerik
+                    fig = px.histogram(
+                        data, 
+                        x='Usia',
                         title="Customer Age Distribution",
-                        hole=0.4,
-                        color_discrete_sequence=px.colors.sequential.Blues
+                        nbins=20,
+                        color_discrete_sequence=['#003366']
                     )
                     
                     fig.update_layout(
                         height=400,
                         margin=dict(l=20, r=20, t=40, b=20),
-                        legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5),
                         paper_bgcolor="white",
                         plot_bgcolor="rgba(0,0,0,0)"
                     )
                     
                     st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.info("Age category data not available or contains only null values.")
-            
-            with age_tabs[1]:
-                # Plot distribusi usia numerik
-                fig = px.histogram(
-                    data, 
-                    x='Usia',
-                    title="Customer Age Distribution",
-                    nbins=20,
-                    color_discrete_sequence=['#003366']
-                )
                 
-                fig.update_layout(
-                    height=400,
-                    margin=dict(l=20, r=20, t=40, b=20),
-                    paper_bgcolor="white",
-                    plot_bgcolor="rgba(0,0,0,0)"
-                )
-                
-                st.plotly_chart(fig, use_container_width=True)
-            
-            # Show age statistics
-            st.write("**Age Statistics:**")
-            st.write(f"- Average Age: {data['Usia'].mean():.1f} years")
-            st.write(f"- Median Age: {data['Usia'].median():.1f} years")
-            st.write(f"- Youngest: {data['Usia'].min():.0f} years")
-            st.write(f"- Oldest: {data['Usia'].max():.0f} years")
+                # Show age statistics
+                st.write("**Age Statistics:**")
+                st.write(f"- Average Age: {data['Usia'].mean():.1f} years")
+                st.write(f"- Median Age: {data['Usia'].median():.1f} years")
+                st.write(f"- Youngest: {data['Usia'].min():.0f} years")
+                st.write(f"- Oldest: {data['Usia'].max():.0f} years")
         else:
-            st.info("Age data not available or contains only null values.")
-            st.warning("For age analysis, please ensure your data contains valid birth date information or valid age values.")
+            st.error("Age data not available. Please ensure your data includes BIRTH_DATE column for age calculation.")
     
     with col2:
         # Gender distribution
@@ -257,7 +347,7 @@ def show_demographic_analysis(data):
                 gender_label = "Male" if row['Gender'] == 'M' else "Female"
                 st.write(f"- {gender_label}: {row['Count']} ({row['Count']/data.shape[0]*100:.1f}%)")
         else:
-            st.info("Gender data not available or contains only null values.")
+            st.info("Gender data not available.")
     
     col1, col2 = st.columns(2)
     
@@ -285,7 +375,7 @@ def show_demographic_analysis(data):
             
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("Education data not available or contains only null values.")
+            st.info("Education data not available.")
     
     with col2:
         # Marital status distribution
@@ -320,7 +410,7 @@ def show_demographic_analysis(data):
             
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("Marital status data not available or contains only null values.")
+            st.info("Marital status data not available.")
 
 def show_transaction_analysis(data):
     """
@@ -360,7 +450,7 @@ def show_transaction_analysis(data):
             
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("Product category data not available or contains only null values.")
+            st.info("Product category data not available.")
     
     with col2:
         # Transaction amount vs age
@@ -429,7 +519,7 @@ def show_transaction_analysis(data):
             st.write(f"- Average products per customer: {data['TOTAL_PRODUCT_MPF'].mean():.2f}")
             st.write(f"- Percentage of multi-product customers: {(data['TOTAL_PRODUCT_MPF'] > 1).mean()*100:.1f}%")
         else:
-            st.info("Number of products data not available or contains only null values.")
+            st.info("Number of products data not available.")
     
     with col2:
         # Transaction amount by product category

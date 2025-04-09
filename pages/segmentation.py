@@ -95,16 +95,12 @@ def show_segmentation_page():
                     features.extend(['Frequency', 'Monetary'])
                 
                 # Tambahkan fitur usia jika dipilih
-                if use_age and 'BIRTH_DATE' in df.columns:
-                    # Group by customer ID to get birth date
-                    birth_data = df.groupby('CUST_NO').agg({'BIRTH_DATE': 'max'}).reset_index()
+                if use_age and 'Usia' in df.columns:
+                    # Group by customer ID to get unique age value
+                    age_data = df.groupby('CUST_NO')['Usia'].mean().reset_index()
                     
                     # Merge with RFM data
-                    rfm = rfm.merge(birth_data, on='CUST_NO', how='left')
-                    
-                    # Calculate age
-                    current_year = pd.Timestamp.now().year
-                    rfm['Usia'] = current_year - rfm['BIRTH_DATE'].dt.year
+                    rfm = rfm.merge(age_data, on='CUST_NO', how='left')
                     
                     # Periksa dan tangani nilai NaN dalam Usia
                     if rfm['Usia'].isnull().any():
@@ -193,6 +189,11 @@ def show_segmentation_page():
                 # Tandai pelanggan yang layak diundang
                 rfm['Invitation_Status'] = rfm['Cluster'].apply(lambda x: '✅ Invited' if x in top_clusters else '❌ Not Invited')
                 
+                # Pastikan jika ada kolom Usia_Kategori di df, maka transfer juga ke rfm
+                if 'Usia_Kategori' in df.columns and 'Usia_Kategori' not in rfm.columns:
+                    usia_kat_data = df.groupby('CUST_NO')['Usia_Kategori'].first().reset_index()
+                    rfm = rfm.merge(usia_kat_data, on='CUST_NO', how='left')
+                
                 # Simpan hasil segmentasi
                 st.session_state.segmented_data = rfm
                 st.session_state.segmentation_completed = True
@@ -241,114 +242,3 @@ def display_segmentation_results(rfm, cluster_info, top_clusters):
     st.markdown("### Segmentation Results")
     
     # Overview
-    st.write(f"Total customers: {rfm.shape[0]}")
-    st.write(f"Number of clusters: {rfm['Cluster'].nunique()}")
-    
-    # Preview data hasil segmentasi
-    st.markdown("#### Customer Segmentation Preview")
-    st.dataframe(rfm[['CUST_NO', 'Recency', 'Frequency', 'Monetary', 'Cluster', 'Invitation_Status']].head(10))
-    
-    # Visualisasi cluster
-    st.markdown("#### Cluster Visualization")
-    
-    tab1, tab2, tab3 = st.tabs(["Recency vs Monetary", "Recency vs Frequency", "3D Visualization"])
-    
-    with tab1:
-        fig = px.scatter(
-            rfm, x='Recency', y='Monetary',
-            color='Cluster',
-            title="Clusters by Recency and Monetary",
-            hover_data=['CUST_NO', 'Frequency', 'Invitation_Status'],
-            size='Frequency',
-            size_max=15,
-            color_continuous_scale=px.colors.sequential.Blues,
-            opacity=0.7
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    
-    with tab2:
-        fig = px.scatter(
-            rfm, x='Recency', y='Frequency',
-            color='Cluster',
-            title="Clusters by Recency and Frequency",
-            hover_data=['CUST_NO', 'Monetary', 'Invitation_Status'],
-            size='Monetary',
-            size_max=15,
-            color_continuous_scale=px.colors.sequential.Blues,
-            opacity=0.7
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    
-    with tab3:
-        fig = px.scatter_3d(
-            rfm, x='Recency', y='Frequency', z='Monetary',
-            color='Cluster',
-            title="3D Visualization of RFM Clusters",
-            opacity=0.7
-        )
-        fig.update_layout(scene=dict(
-            xaxis_title='Recency',
-            yaxis_title='Frequency',
-            zaxis_title='Monetary'
-        ))
-        st.plotly_chart(fig, use_container_width=True)
-    
-    # Karakteristik cluster
-    st.markdown("#### Cluster Characteristics")
-    
-    # Format tabel informasi cluster
-    cluster_stats = cluster_info.copy()
-    cluster_stats['Recency_mean'] = cluster_stats['Recency_mean'].round(0).astype(int)
-    cluster_stats['Frequency_mean'] = cluster_stats['Frequency_mean'].round(1)
-    cluster_stats['Monetary_mean'] = cluster_stats['Monetary_mean'].round(0).astype(int)
-    
-    # Tambahkan kolom is_top_cluster
-    cluster_stats['Invitation_Status'] = cluster_stats['Cluster'].apply(
-        lambda x: '✅ Invited' if x in top_clusters else '❌ Not Invited'
-    )
-    
-    # Tampilkan statistik cluster
-    st.dataframe(cluster_stats[['Cluster', 'Recency_mean', 'Frequency_mean', 'Monetary_mean', 
-                               'Recency_count', 'Percentage', 'Invitation_Status']])
-    
-    # Visualisasi karakteristik cluster
-    fig = go.Figure()
-    
-    # Tambahkan bar untuk setiap cluster
-    for i, cluster in enumerate(sorted(rfm['Cluster'].unique())):
-        cluster_data = rfm[rfm['Cluster'] == cluster]
-        
-        invitation_status = '✅ Invited' if cluster in top_clusters else '❌ Not Invited'
-        marker_color = '#003366' if cluster in top_clusters else '#999999'
-        
-        fig.add_trace(go.Bar(
-            x=['Recency (days)', 'Frequency', 'Monetary (in millions)'],
-            y=[
-                cluster_data['Recency'].mean(),
-                cluster_data['Frequency'].mean(),
-                cluster_data['Monetary'].mean() / 1000000  # Convert to millions
-            ],
-            name=f'Cluster {cluster} ({invitation_status})',
-            marker_color=marker_color
-        ))
-    
-    fig.update_layout(
-        title="Cluster Characteristics Comparison",
-        xaxis_title="Metrics",
-        yaxis_title="Average Value",
-        barmode='group'
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Download link
-    csv = rfm.to_csv(index=False)
-    st.download_button(
-        label="Download Segmentation Results",
-        data=csv,
-        file_name="segmentation_results.csv",
-        mime="text/csv"
-    )
-    
-    # Hints for next steps
-    st.info("You can now proceed to the Promo Mapping section to create targeted promotional strategies based on these segments.")

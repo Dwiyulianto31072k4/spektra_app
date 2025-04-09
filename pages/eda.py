@@ -99,7 +99,11 @@ def show_distribution_analysis(data):
     
     with col2:
         # Categorical column distribution
-        categorical_cols = data.select_dtypes(include=['object']).columns.tolist() + (['Usia_Kategori'] if 'Usia_Kategori' in data.columns else [])
+        categorical_cols = data.select_dtypes(include=['object', 'category']).columns.tolist()
+        
+        # Tambahkan Usia_Kategori jika ada (bisa jadi tipe kategori atau object)
+        if 'Usia_Kategori' in data.columns and 'Usia_Kategori' not in categorical_cols:
+            categorical_cols.append('Usia_Kategori')
         
         if not categorical_cols:
             st.info("No categorical columns available for analysis.")
@@ -155,36 +159,60 @@ def show_demographic_analysis(data):
     col1, col2 = st.columns(2)
     
     with col1:
-        # Age distribution
+        # Age distribution (both numerical and categorical)
         if 'Usia' in data.columns:
-            # Create age groups if they don't exist
-            if 'Usia_Kategori' not in data.columns:
-                bins = [0, 25, 35, 45, 55, 100]
-                labels = ['<25', '25-35', '35-45', '45-55', '55+']
-                data['Usia_Kategori'] = pd.cut(data['Usia'], bins=bins, labels=labels, right=False)
+            # Tab untuk pilihan tipe visualisasi usia
+            age_tabs = st.tabs(["Age Categories", "Age Distribution"])
             
-            # Plot age distribution
-            age_counts = data['Usia_Kategori'].value_counts().reset_index()
-            age_counts.columns = ['Age Group', 'Count']
+            with age_tabs[0]:
+                # Pastikan Usia_Kategori ada
+                if 'Usia_Kategori' not in data.columns:
+                    # Buat kategori usia jika belum ada
+                    bins = [0, 25, 35, 45, 55, 100]
+                    labels = ['<25', '25-35', '35-45', '45-55', '55+']
+                    data['Usia_Kategori'] = pd.cut(data['Usia'], bins=bins, labels=labels, right=False)
+                
+                # Plot distribusi kategori usia
+                age_counts = data['Usia_Kategori'].value_counts().reset_index()
+                age_counts.columns = ['Age Group', 'Count']
+                
+                fig = px.pie(
+                    age_counts, 
+                    values='Count', 
+                    names='Age Group',
+                    title="Customer Age Distribution",
+                    hole=0.4,
+                    color_discrete_sequence=px.colors.sequential.Blues
+                )
+                
+                fig.update_layout(
+                    height=400,
+                    margin=dict(l=20, r=20, t=40, b=20),
+                    legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5),
+                    paper_bgcolor="white",
+                    plot_bgcolor="rgba(0,0,0,0)"
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
             
-            fig = px.pie(
-                age_counts, 
-                values='Count', 
-                names='Age Group',
-                title="Customer Age Distribution",
-                hole=0.4,
-                color_discrete_sequence=px.colors.sequential.Blues
-            )
-            
-            fig.update_layout(
-                height=400,
-                margin=dict(l=20, r=20, t=40, b=20),
-                legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5),
-                paper_bgcolor="white",
-                plot_bgcolor="rgba(0,0,0,0)"
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
+            with age_tabs[1]:
+                # Plot distribusi usia numerik
+                fig = px.histogram(
+                    data, 
+                    x='Usia',
+                    title="Customer Age Distribution",
+                    nbins=20,
+                    color_discrete_sequence=['#003366']
+                )
+                
+                fig.update_layout(
+                    height=400,
+                    margin=dict(l=20, r=20, t=40, b=20),
+                    paper_bgcolor="white",
+                    plot_bgcolor="rgba(0,0,0,0)"
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
             
             # Show age statistics
             st.write("**Age Statistics:**")

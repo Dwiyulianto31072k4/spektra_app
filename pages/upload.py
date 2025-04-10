@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import datetime
 import os
+import re
 
 from utils.data_utils import create_example_data
 
@@ -37,14 +38,24 @@ def show_upload_page():
 
                     # Tampilkan informasi kolom Usia jika ada
                     if 'Usia' in processed_data.columns:
-                        st.write("Age statistics:")
-                        stats = processed_data['Usia'].describe()
-                        st.write(f"- Min: {stats['min']:.0f}, Max: {stats['max']:.0f}, Mean: {stats['mean']:.1f}")
+                        st.markdown("### Age Information")
                         
-                        # Tampilkan distribusi kategori usia jika ada
-                        if 'Usia_Kategori' in processed_data.columns:
-                            st.write("Age category distribution:")
-                            st.write(processed_data['Usia_Kategori'].value_counts())
+                        # Cek keberadaan nilai
+                        valid_ages = processed_data['Usia'].notna().sum()
+                        total_rows = len(processed_data)
+                        st.write(f"Valid age values: {valid_ages} out of {total_rows} rows ({valid_ages/total_rows*100:.1f}%)")
+                        
+                        # Tampilkan statistik jika ada nilai valid
+                        if valid_ages > 0:
+                            age_stats = processed_data['Usia'].describe()
+                            st.write(f"Age statistics: Min={age_stats['min']:.1f}, Max={age_stats['max']:.1f}, Mean={age_stats['mean']:.1f}")
+                            
+                            # Tampilkan distribusi kategori usia
+                            if 'Usia_Kategori' in processed_data.columns:
+                                st.write("Age category distribution:")
+                                st.write(processed_data['Usia_Kategori'].value_counts())
+                    else:
+                        st.warning("Age calculation failed. Age-based analysis will not be available.")
 
                     st.session_state.data = processed_data
                     
@@ -80,105 +91,195 @@ def show_upload_page():
             st.markdown("### Next Steps")
             st.info("You can now proceed to the Exploratory Data Analysis section.")
 
+def clean_date_string(date_string):
+    """
+    Membersihkan dan menstandardisasi string tanggal
+    
+    Parameters:
+    -----------
+    date_string : str
+        String tanggal yang akan dibersihkan
+    
+    Returns:
+    --------
+    str
+        String tanggal yang sudah dibersihkan
+    """
+    if pd.isna(date_string) or date_string is None or date_string == '':
+        return date_string
+    
+    # Hapus waktu (00.00.00 atau time component)
+    date_string = str(date_string)
+    date_string = re.sub(r'\s*\d{1,2}[:.]\d{1,2}[:.]\d{1,2}.*$', '', date_string)
+    date_string = re.sub(r'\s+00\.00\.00.*$', '', date_string)
+    
+    # Bersihkan character tidak standar
+    date_string = date_string.replace('/', '-').replace('.', '-')
+    
+    return date_string.strip()
+
 def preprocess_data(data, date_cols):
     """
-    Fungsi preprocessing data - fokus pada pembuatan kolom Usia dan Usia_Kategori
-    hanya jika BIRTH_DATE tersedia
+    Fungsi untuk memproses data sebelum analisis dengan penanganan khusus untuk BIRTH_DATE
+    
+    Parameters:
+    -----------
+    data : pandas.DataFrame
+        Data mentah yang akan diproses
+    date_cols : list
+        Daftar kolom yang berisi tanggal
+    
+    Returns:
+    --------
+    pandas.DataFrame
+        Data yang telah diproses
     """
     processed_data = data.copy()
     
-    # Konversi kolom tanggal dengan multi-format handling
+    # Konversi kolom tanggal
     for col in date_cols:
         if col in processed_data.columns:
-            try:
-                # Ambil sampel untuk melihat format yang mungkin
-                samples = processed_data[col].dropna().head(3).tolist()
-                st.write(f"Sample dates in {col}: {samples}")
-                
-                # Coba beberapa format standar
-                for fmt in ['%Y%m%d', '%d/%m/%Y', '%m/%d/%Y', '%Y-%m-%d']:
-                    try:
-                        test_convert = pd.to_datetime(processed_data[col], format=fmt, errors='coerce')
-                        if test_convert.notna().sum() > processed_data.shape[0] * 0.5:  # Jika > 50% berhasil
-                            processed_data[col] = test_convert
-                            st.write(f"Converted {col} using format {fmt}")
-                            break
-                    except:
-                        continue
-                
-                # Fallback ke pandas automatic detection
-                if pd.api.types.is_datetime64_dtype(processed_data[col]) == False:
-                    processed_data[col] = pd.to_datetime(processed_data[col], errors='coerce')
-                    st.write(f"Converted {col} using pandas automatic detection")
-                
-                # Laporan hasil konversi
-                valid_dates = processed_data[col].notna().sum()
-                st.write(f"Successfully converted {valid_dates}/{len(processed_data)} dates in {col}")
-                
-            except Exception as e:
-                st.error(f"Error converting {col}: {str(e)}")
+            # Simpan nilai original untuk debugging
+            original_values = processed_data[col].copy()
+            
+            # Bersihkan nilai tanggal
+            processed_data[col] = processed_data[col].apply(clean_date_string)
+            
+            # Coba beberapa format tanggal umum
+            date_formats = ['%m/%d/%Y', '%Y-%m-%d', '%d-%m-%Y', '%m-%d-%Y', '%Y%m%d', '%d/%m/%Y']
+            converted = False
+            
+            # Coba semua format
+            for fmt in date_formats:
+                try:
+                    temp_dates = pd.to_datetime(processed_data[col], format=fmt, errors='coerce')
+                    # Hitung keberhasilan konversi
+                    success_rate = temp_dates.notna().sum() / len(processed_data)
+                    
+                    # Jika >30% berhasil, gunakan format ini
+                    if success_rate > 0.3:
+                        processed_data[col] = temp_dates
+                        st.write(f"Converted {col} using format {fmt}: {temp_dates.notna().sum()} valid dates ({success_rate:.1%})")
+                        converted = True
+                        break
+                except Exception as e:
+                    continue
+            
+            # Jika format spesifik gagal, gunakan pandas automatic detection
+            if not converted:
+                processed_data[col] = pd.to_datetime(processed_data[col], errors='coerce')
+                success_rate = processed_data[col].notna().sum() / len(processed_data)
+                st.write(f"Converted {col} using pandas automatic detection: {processed_data[col].notna().sum()} valid dates ({success_rate:.1%})")
     
-    # Hitung usia HANYA jika BIRTH_DATE tersedia dan valid
+    # Khusus untuk BIRTH_DATE, gunakan pendekatan yang lebih agresif jika masih gagal
     if 'BIRTH_DATE' in processed_data.columns:
-        valid_birth_dates = processed_data['BIRTH_DATE'].notna()
-        valid_count = valid_birth_dates.sum()
+        # Cek keberhasilan konversi
+        if processed_data['BIRTH_DATE'].notna().sum() == 0:
+            st.warning("All BIRTH_DATE values failed to convert. Trying more aggressive approach...")
+            
+            # Tampilkan sampel untuk debugging
+            st.write("Sample BIRTH_DATE values before cleanup:")
+            st.write(data['BIRTH_DATE'].dropna().head(5).tolist())
+            
+            # Coba pendekatan ekstraksi komponen tanggal dengan regex
+            def extract_date_components(date_str):
+                if pd.isna(date_str):
+                    return None
+                
+                date_str = str(date_str).strip()
+                
+                # Coba ekstrak komponen dengan regex
+                # Format MM/DD/YYYY atau DD/MM/YYYY
+                match = re.search(r'(\d{1,2})[/\-\.](\d{1,2})[/\-\.](\d{4}|\d{2})', date_str)
+                if match:
+                    day, month, year = int(match.group(1)), int(match.group(2)), int(match.group(3))
+                    # Fix tahun 2 digit
+                    if year < 100:
+                        year = year + 1900 if year >= 50 else year + 2000
+                    
+                    # Validasi tanggal
+                    if month > 12:  # Kemungkinan format MM/DD/YYYY
+                        month, day = day, month
+                    
+                    try:
+                        return pd.Timestamp(year=year, month=month, day=day)
+                    except:
+                        return None
+                
+                # Format YYYY-MM-DD
+                match = re.search(r'(\d{4})[/\-\.](\d{1,2})[/\-\.](\d{1,2})', date_str)
+                if match:
+                    year, month, day = int(match.group(1)), int(match.group(2)), int(match.group(3))
+                    try:
+                        return pd.Timestamp(year=year, month=month, day=day)
+                    except:
+                        return None
+                
+                return None
+            
+            # Konversi menggunakan fungsi ekstraksi komponen
+            processed_data['BIRTH_DATE'] = processed_data['BIRTH_DATE'].apply(extract_date_components)
+            
+            # Cek keberhasilan
+            success_rate = processed_data['BIRTH_DATE'].notna().sum() / len(processed_data)
+            st.write(f"Extracted dates with component extraction: {processed_data['BIRTH_DATE'].notna().sum()} valid dates ({success_rate:.1%})")
         
-        if valid_count > 0:
-            st.write(f"Calculating age from {valid_count} valid birth dates...")
+        # Jika sudah berhasil konversi, hitung usia
+        if processed_data['BIRTH_DATE'].notna().sum() > 0:
+            st.write("Calculating age from birth dates...")
             
             # Hitung usia
             current_date = pd.Timestamp.now()
-            processed_data['Usia'] = np.nan  # Initialize with NaN
+            processed_data['Usia'] = ((current_date - processed_data['BIRTH_DATE']).dt.days / 365.25)
             
-            # Hanya hitung untuk tanggal lahir yang valid
-            processed_data.loc[valid_birth_dates, 'Usia'] = (
-                (current_date - processed_data.loc[valid_birth_dates, 'BIRTH_DATE']).dt.days / 365.25
-            )
-            
-            # Round dan filter usia yang masuk akal (18-100)
+            # Cek dan filter untuk usia yang valid
             processed_data['Usia'] = processed_data['Usia'].round()
             valid_age = (processed_data['Usia'] >= 18) & (processed_data['Usia'] <= 100)
+            processed_data.loc[~valid_age, 'Usia'] = np.nan
             
-            # Hanya gunakan usia yang valid
-            if valid_age.sum() > 0:
-                # Convert to numeric and integer
-                processed_data['Usia'] = pd.to_numeric(processed_data['Usia'], errors='coerce')
+            # Konversi ke tipe numerik
+            processed_data['Usia'] = pd.to_numeric(processed_data['Usia'], errors='coerce')
+            
+            # Tampilkan statistik usia
+            if processed_data['Usia'].notna().sum() > 0:
+                st.success(f"Successfully calculated age for {processed_data['Usia'].notna().sum()} customers")
+                st.write(f"Age statistics: Min={processed_data['Usia'].min():.1f}, Max={processed_data['Usia'].max():.1f}, Mean={processed_data['Usia'].mean():.1f}")
                 
-                # Create age categories
+                # Buat kategori usia
                 bins = [0, 25, 35, 45, 55, 100]
                 labels = ['<25', '25-35', '35-45', '45-55', '55+']
-                
-                processed_data['Usia_Kategori'] = pd.cut(
-                    processed_data['Usia'], 
-                    bins=bins, 
-                    labels=labels, 
-                    right=False
-                )
-                
-                # Convert to string for consistency
+                processed_data['Usia_Kategori'] = pd.cut(processed_data['Usia'], bins=bins, labels=labels, right=False)
                 processed_data['Usia_Kategori'] = processed_data['Usia_Kategori'].astype(str)
+                processed_data.loc[processed_data['Usia_Kategori'] == 'nan', 'Usia_Kategori'] = 'Unknown'
                 
-                # Report success
-                st.write(f"Successfully created age data for {valid_age.sum()} customers")
-                st.write(f"Age statistics: Min={processed_data['Usia'].min():.0f}, Max={processed_data['Usia'].max():.0f}, Mean={processed_data['Usia'].mean():.1f}")
+                # Tampilkan distribusi kategori
+                st.write("Age category distribution:")
+                st.write(processed_data['Usia_Kategori'].value_counts())
             else:
-                st.warning("No valid ages (18-100) could be calculated from birth dates.")
+                st.warning("No valid ages could be calculated (between 18-100 years)")
         else:
-            st.warning("No valid birth dates found in the BIRTH_DATE column.")
+            st.warning("No valid birth dates could be converted")
     else:
-        st.info("BIRTH_DATE column not found. Age data won't be available.")
+        st.warning("BIRTH_DATE column not found in the data")
     
     # Konversi kolom numerik
     numeric_cols = ['TOTAL_AMOUNT_MPF', 'TOTAL_PRODUCT_MPF', 'MAX_MPF_AMOUNT', 'MIN_MPF_AMOUNT', 
-                   'LAST_MPF_AMOUNT', 'LAST_MPF_INST', 'LAST_MPF_TOP', 'AVG_MPF_INST',
-                   'PRINCIPAL', 'GRS_DP', 'JMH_CON_SBLM_MPF', 'JMH_PPC']
+                  'LAST_MPF_AMOUNT', 'LAST_MPF_INST', 'LAST_MPF_TOP', 'AVG_MPF_INST',
+                  'PRINCIPAL', 'GRS_DP', 'JMH_CON_SBLM_MPF', 'JMH_PPC']
     
     for col in numeric_cols:
         if col in processed_data.columns:
+            # Bersihkan data terlebih dahulu
             if processed_data[col].dtype == 'object':
                 processed_data[col] = processed_data[col].astype(str).str.replace(',', '').str.replace(r'[^\d.]', '', regex=True)
+            
+            # Konversi ke numerik
+            original_count = len(processed_data)
             processed_data[col] = pd.to_numeric(processed_data[col], errors='coerce')
-            if processed_data[col].isna().any():
+            null_count = processed_data[col].isnull().sum()
+            
+            # Isi nilai yang hilang
+            if null_count > 0 and null_count < len(processed_data):
                 median_val = processed_data[col].median()
                 processed_data[col] = processed_data[col].fillna(median_val)
     

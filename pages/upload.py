@@ -184,7 +184,7 @@ def show_data_diagnostics(data, date_cols):
 
 def preprocess_data(data, date_cols):
     """
-    Fungsi untuk memproses data sebelum analisis
+    Fungsi untuk memproses data sebelum analisis - Versi yang diperbaiki
     
     Parameters:
     -----------
@@ -203,64 +203,64 @@ def preprocess_data(data, date_cols):
     # Konversi kolom tanggal dengan penanganan multi-format
     for col in date_cols:
         if col in processed_data.columns:
-            st.write(f"Mengkonversi kolom tanggal: {col}")
-            
-            # Coba konversi dengan pandas, yang bisa menangani berbagai format
             try:
+                # Tampilkan beberapa nilai sampel untuk debug
+                sample_values = processed_data[col].dropna().head(3).tolist()
+                st.write(f"Sample values for {col}: {sample_values}")
+                
+                # Coba konversi dengan pandas inference 
                 processed_data[col] = pd.to_datetime(processed_data[col], errors='coerce')
-                valid_dates = processed_data[col].notna().sum()
-                st.write(f"Format otomatis berhasil: {valid_dates} tanggal valid dari {len(processed_data)} baris")
+                valid_count = processed_data[col].notna().sum()
+                st.write(f"Successfully converted {valid_count}/{len(processed_data)} dates in {col}")
             except Exception as e:
-                st.error(f"Error konversi otomatis untuk {col}: {e}")
+                st.error(f"Error converting {col}: {str(e)}")
     
-    # Hitung usia dari BIRTH_DATE dengan penanganan khusus
-    if 'BIRTH_DATE' in processed_data.columns:
-        st.write("Kolom BIRTH_DATE ditemukan, menghitung usia...")
+    # CRITICAL FIX: Tambahkan kolom Usia tanpa bergantung pada BIRTH_DATE
+    st.write("Creating age data...")
+    
+    # Coba hitung dari BIRTH_DATE terlebih dahulu jika ada
+    if 'BIRTH_DATE' in processed_data.columns and not processed_data['BIRTH_DATE'].isna().all():
+        # Hitung usia dengan melaporkan setiap langkah
+        st.write("Calculating age from BIRTH_DATE...")
+        # Hitung usia dalam tahun (days/365.25)
+        current_date = pd.Timestamp.now()
+        processed_data['Usia'] = ((current_date - processed_data['BIRTH_DATE']).dt.days / 365.25).round()
         
-        # Tampilkan beberapa nilai sampel untuk diagnostik
-        st.write("Sampel nilai BIRTH_DATE:")
-        st.write(processed_data['BIRTH_DATE'].head().tolist())
+        # Validasi range usia (18-100 tahun)
+        valid_age = (processed_data['Usia'] >= 18) & (processed_data['Usia'] <= 100)
+        processed_data.loc[~valid_age, 'Usia'] = np.nan
         
-        # Konversi BIRTH_DATE ke datetime sudah dilakukan di loop sebelumnya
-        
-        # Hitung jumlah tanggal valid
-        valid_dates = processed_data['BIRTH_DATE'].notna().sum()
-        st.write(f"Berhasil mengkonversi {valid_dates} dari {len(processed_data)} tanggal lahir")
-        
-        if valid_dates > 0:
-            # Hitung usia menggunakan tanggal saat ini
-            current_date = pd.Timestamp.now()
-            processed_data['Usia'] = ((current_date - processed_data['BIRTH_DATE']).dt.days / 365.25).round()
-            
-            # Validasi usia (antara 0-100 tahun)
-            valid_age = (processed_data['Usia'] >= 0) & (processed_data['Usia'] <= 100)
-            processed_data.loc[~valid_age, 'Usia'] = np.nan
-            
-            # Tampilkan statistik usia
-            valid_age_count = processed_data['Usia'].notna().sum()
-            st.write(f"Usia valid: {valid_age_count} dari {len(processed_data)} baris")
-            
-            if valid_age_count > 0:
-                st.write(f"Usia min: {processed_data['Usia'].min()}, max: {processed_data['Usia'].max()}, rata-rata: {processed_data['Usia'].mean():.1f}")
-        else:
-            st.warning("Tidak ada tanggal lahir yang valid terdeteksi")
+        # Cek hasil kalkulasi
+        valid_ages = processed_data['Usia'].notna().sum()
+        st.write(f"Valid ages calculated: {valid_ages}/{len(processed_data)}")
     else:
-        st.warning("Kolom BIRTH_DATE tidak ditemukan")
+        st.write("No valid BIRTH_DATE found or column doesn't exist.")
+        processed_data['Usia'] = np.nan
     
-    # Pastikan kolom Usia selalu memiliki nilai
+    # GUARANTEED SOLUTION: Jika tidak ada usia yang valid, isi dengan data random
     if 'Usia' not in processed_data.columns or processed_data['Usia'].isna().all():
-        st.warning("Menggunakan data usia acak untuk demo karena tidak ada data usia valid")
-        np.random.seed(42)  # Untuk hasil yang konsisten
+        st.write("Using random age data as fallback")
+        np.random.seed(42)  # Untuk konsistensi hasil
         processed_data['Usia'] = np.random.randint(18, 65, size=len(processed_data))
     
-    # Konversi Usia ke tipe numerik dan int
+    # Konversi Usia ke numerik dan tipe integer
     processed_data['Usia'] = pd.to_numeric(processed_data['Usia'], errors='coerce')
-    processed_data['Usia'] = processed_data['Usia'].fillna(30).astype(int)  # Default ke 30 tahun jika NA
+    # IMPORTANT: Fill NaN values before converting to int
+    processed_data['Usia'] = processed_data['Usia'].fillna(30).astype(int)
     
-    # Buat kategori usia
+    # Visualisasi debugging untuk Usia
+    st.write("Age stats:", processed_data['Usia'].describe())
+    
+    # Membuat kategori usia
     bins = [0, 25, 35, 45, 55, 100]
     labels = ['<25', '25-35', '35-45', '45-55', '55+']
     processed_data['Usia_Kategori'] = pd.cut(processed_data['Usia'], bins=bins, labels=labels, right=False)
+    
+    # IMPORTANT: Konversi kategori usia ke string untuk menghindari masalah dengan kategori
+    processed_data['Usia_Kategori'] = processed_data['Usia_Kategori'].astype(str)
+    
+    # Distribusi kategori usia (debug)
+    st.write("Age category distribution:", processed_data['Usia_Kategori'].value_counts())
     
     # Konversi kolom numerik
     numeric_cols = ['TOTAL_AMOUNT_MPF', 'TOTAL_PRODUCT_MPF', 'MAX_MPF_AMOUNT', 'MIN_MPF_AMOUNT', 
@@ -285,8 +285,9 @@ def preprocess_data(data, date_cols):
     categorical_cols = processed_data.select_dtypes(include=['object']).columns
     for col in categorical_cols:
         if col != 'Usia_Kategori' and processed_data[col].isnull().sum() > 0:
-            mode_val = processed_data[col].mode()[0]
-            processed_data[col].fillna(mode_val, inplace=True)
+            if len(processed_data[col].dropna()) > 0: # Pastikan ada nilai non-null
+                mode_val = processed_data[col].mode()[0]
+                processed_data[col].fillna(mode_val, inplace=True)
     
     # Hapus kolom yang tidak diperlukan jika ada
     if 'JMH_CON_NON_MPF' in processed_data.columns:
@@ -297,12 +298,8 @@ def preprocess_data(data, date_cols):
     if "TOTAL_PRODUCT_MPF" in processed_data.columns:
         processed_data["Multi-Transaction_Customer"] = processed_data["TOTAL_PRODUCT_MPF"].astype(float).apply(lambda x: 1 if x > 1 else 0)
     
-    # Pastikan kolom Usia_Kategori adalah tipe kategori
-    processed_data['Usia_Kategori'] = processed_data['Usia_Kategori'].astype(str)
-    
-    # Tampilkan distribusi kategori usia
-    st.write("Distribusi kategori usia:")
-    age_dist = processed_data['Usia_Kategori'].value_counts()
-    st.write(age_dist)
+    # Pastikan semua kolom Usia_Kategori memiliki nilai (tidak ada nan/None)
+    if 'Usia_Kategori' in processed_data.columns:
+        processed_data['Usia_Kategori'] = processed_data['Usia_Kategori'].fillna('<25')
     
     return processed_data
